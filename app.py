@@ -1,5 +1,7 @@
 # app.py
-# CircuitGuard — final update: PDF table fixed (ReportLab Table) + restored CSS + lighter buttons
+# CircuitGuard — UI tweaks: remove per-image message, ensure PDFs in ZIP (reportlab OR PIL fallback),
+# lighter browse button text, set main heading font to Bitcount Prop Double Ink (fallbacks included).
+
 import os
 import io
 import zipfile
@@ -9,17 +11,16 @@ from typing import List, Dict
 
 import streamlit as st
 from ultralytics import YOLO
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
 import altair as alt
 
-# ReportLab (required for PDFs). If missing, warn the user in-app.
+# Optional: ReportLab (preferred for nicely formatted tables in PDFs)
 HAS_REPORTLAB = True
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.utils import ImageReader
-    from reportlab.pdfgen import canvas
-    from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, KeepTogether
+    from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet
 except Exception:
@@ -35,12 +36,14 @@ IOU = 0.45
 
 st.set_page_config(page_title="CircuitGuard – PCB Defect Detection", page_icon="🛡️", layout="wide")
 
-# ------------------ RESTORED CSS (original + improvements) ------------------
+# ------------------ CSS (restored look + lighter browse button + heading font) ------------------
 st.markdown(
     """
     <style>
-    /* === Original long CSS restored and a few tweaks === */
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
+    /* Fonts: prefer Bitcount Prop Double Ink, fallback to Space Grotesk/Poppins */
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap');
+    /* If a custom Bitcount Prop Double Ink is available via your hosting, it will be used here.
+       If not available, browser falls back gracefully. */
     @import url('https://fonts.googleapis.com/css2?family=Bitcount+Prop+Single:wght@400;600&display=swap');
 
     html, body, [data-testid="stAppViewContainer"] {
@@ -53,18 +56,16 @@ st.markdown(
         background: linear-gradient(180deg, #e8f5ff 0%, #e7fff7 100%);
         border-right: 1px solid #d0e2ff;
     }
+    [data-testid="stSidebar"] * { color: #102a43 !important; }
+    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code { background: #e5e7eb !important; color: #111827 !important; }
 
-    [data-testid="stSidebar"] * {
-        color: #102a43 !important;
-    }
-
-    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code {
-        background: #e5e7eb !important;
-        color: #111827 !important;
-    }
-
-    [data-testid="stToolbar"] * {
-        color: #e5e7eb !important;
+    /* Main heading now prefers Bitcount Prop Double Ink (if available) */
+    .main-title {
+        font-family: 'Bitcount Prop Double Ink', 'Bitcount Prop Single', 'Space Grotesk', 'Poppins', system-ui, -apple-system, sans-serif;
+        font-weight: 700;
+        font-size: 2.8rem;
+        color: #13406b;
+        letter-spacing: 0.02em;
     }
 
     h1, h2, h3, h4 {
@@ -73,6 +74,7 @@ st.markdown(
         font-weight: 600;
     }
 
+    /* Buttons: lighter background so text is readable */
     .stButton>button {
         border-radius: 999px;
         padding: 0.5rem 1.25rem;
@@ -81,13 +83,12 @@ st.markdown(
         background: linear-gradient(90deg, #e6f0ff 0%, #d2eaff 100%);
         color: #04293a;
         box-shadow: 0 8px 14px rgba(148, 163, 184, 0.18);
-        transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
     }
     .stButton>button:hover {
-        background: linear-gradient(90deg, #cfe6ff 0%, #bfe0ff 100%);
         transform: translateY(-2px);
     }
 
+    /* Make download buttons readable */
     [data-testid="stDownloadButton"] > button {
         background: #f1f5fb !important;
         color: #04293a !important;
@@ -96,42 +97,37 @@ st.markdown(
         font-weight: 600;
     }
 
-    .upload-box {
-        border-radius: 18px;
-        border: 1px dashed #a3c9ff;
-        padding: 1.5rem;
-        background: #ffffff;
+    /* File uploader: make the Browse files button lighter so label is readable */
+    [data-testid="stFileUploader"] button {
+        background: #e6f0ff !important;
+        color: #04293a !important;
+        border-radius: 10px !important;
+        padding: 6px 12px !important;
+        border: 1px solid #cfe1ff !important;
     }
+    [data-testid="stFileUploader"] label { color: #0b3a57 !important; }
+
+    .upload-box { border-radius: 18px; border: 1px dashed #a3c9ff; padding: 1.5rem; background: #ffffff; }
 
     .metric-card { border-radius: 18px; padding: 0.75rem 1rem; background: #ffffff; border: 1px solid #dbeafe; }
     .metric-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 0.1rem; }
     .metric-value { font-size: 1.15rem; font-weight: 600; color: #111827; }
 
-    .logo-circle { width: 60px; height: 60px; border-radius: 50%; background: #e0f2fe; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 0.4rem; }
+    .logo-circle { width: 60px; height: 60px; border-radius: 50%; background: #e0f2fe; display:flex; align-items:center; justify-content:center; font-size:32px; margin-bottom:0.4rem; }
 
-    .header-container { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 0.5rem; margin-bottom: 0.75rem; }
-    .main-title { font-family: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Poppins', sans-serif; font-weight: 600; font-size: 2.8rem; text-align: center; color: #13406b; letter-spacing: 0.03em; }
+    .instruction-card { border-radius: 18px; background: #ffffff; border: 1px solid #dbeafe; padding:1rem 1.25rem; margin:1rem 0; font-size:0.9rem; }
+    .defect-badges { display:flex; gap:0.4rem; margin-top:0.4rem; }
+    .defect-badge { padding:0.2rem 0.6rem; border-radius:999px; background:#e0f2fe; color:#13406b; font-size:0.8rem; }
 
-    .subtitle-text { font-size: 0.95rem; color: #334e68; text-align: center; }
+    .robot-success { margin:1rem 0 0.4rem 0; padding:0.8rem 1.2rem; border-radius:12px; background: linear-gradient(90deg,#0f172a 0%,#1f2937 55%,#16a34a 100%); color:#e5f9ff; font-family:'JetBrains Mono', monospace; font-size:0.9rem; letter-spacing:0.09em; text-transform:uppercase; }
+    .status-strip { margin:0.5rem 0 1.2rem 0; padding:0.65rem 1.1rem; border-radius:999px; background:#dff6ea; color:#064e3b; font-size:0.95rem; font-weight:600; }
 
-    .instruction-card { border-radius: 18px; background: #ffffff; border: 1px solid #dbeafe; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.9rem; }
-    .instruction-card ol { margin-left: 1.1rem; padding-left: 0.5rem; }
-    .instruction-card li { margin-bottom: 0.25rem; }
-
-    .defect-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
-    .defect-badge { padding: 0.2rem 0.6rem; border-radius: 999px; background: #e0f2fe; font-size: 0.8rem; color: #13406b; }
-
-    .robot-success { margin: 1rem 0 0.4rem 0; padding: 0.8rem 1.2rem; border-radius: 12px; background: linear-gradient(90deg, #0f172a 0%, #1f2937 55%, #16a34a 100%); color: #e5f9ff; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; letter-spacing: 0.09em; text-transform: uppercase; }
-
-    .status-strip { margin: 0.5rem 0 1.2rem 0; padding: 0.65rem 1.1rem; border-radius: 999px; background: #dff6ea; color: #064e3b; font-size: 0.95rem; font-weight: 600; }
-
-    /* lighter table-style rows for results */
-    .result-row { background: #ffffff; border: 1px solid #eef6ff; border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 6px 16px rgba(14, 30, 37, 0.02); }
-    .image-name-btn { background: transparent; border: none; color: #0b3a57; font-weight: 600; font-size: 1rem; text-align: left; cursor: pointer; }
+    .result-row { background:#ffffff; border:1px solid #eef6ff; border-radius:12px; padding:12px 16px; margin-bottom:12px; box-shadow: 0 6px 16px rgba(14,30,37,0.02); }
+    .image-name-btn { background:transparent; border:none; color:#0b3a57; font-weight:600; font-size:1rem; text-align:left; cursor:pointer; }
     .image-name-btn:hover { text-decoration: underline; }
     .cell-small { color:#334e68; font-size:0.95rem; }
 
-    .vega-embed, .vega-embed canvas { max-width: 100% !important; }
+    .vega-embed, .vega-embed canvas { max-width:100% !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -192,26 +188,21 @@ def get_defect_locations(result, class_names, image_name):
         })
     return rows
 
-# === PDF generator using platypus Table so columns don't overlap ===
-def generate_pdf_for_image(original_pil: Image.Image, annotated_pil: Image.Image, defects: List[Dict], meta: Dict) -> bytes:
-    if not HAS_REPORTLAB:
-        raise RuntimeError("reportlab not installed; cannot generate PDF.")
+# === PDF generator: prefer ReportLab (clean table), fallback to PIL if not available ===
+def generate_pdf_with_reportlab(original_pil: Image.Image, annotated_pil: Image.Image, defects: List[Dict], meta: Dict) -> bytes:
     buffer = io.BytesIO()
-    # Use SimpleDocTemplate to allow platypus Table flowables
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     story = []
     styles = getSampleStyleSheet()
     header = Paragraph(f"<b>{meta.get('project_name','CircuitGuard')}</b> — {meta.get('filename','')}", styles["Heading2"])
-    sub = Paragraph(f"Processed: {meta.get('processed_at','')} &nbsp;&nbsp; Model: {meta.get('model_version','')}", styles["Normal"])
-    story.append(header)
-    story.append(Spacer(1, 6))
-    story.append(sub)
-    story.append(Spacer(1, 12))
-    # Add images side-by-side (scale to fit)
+    sub = Paragraph(f"Processed: {meta.get('processed_at','')}  |  Model: {meta.get('model_version','')}", styles["Normal"])
+    story.extend([header, Spacer(1, 6), sub, Spacer(1, 12)])
+
+    # images side-by-side
     page_w, page_h = landscape(A4)
     max_img_h = page_h * 0.45
     max_img_w = (page_w - 80) / 2
-    # prepare PIL -> ImageReader with scaled sizes
+
     def prepare_rl_image(pil_img, max_w, max_h):
         iw, ih = pil_img.size
         scale = min(max_w / iw, max_h / ih, 1.0)
@@ -219,26 +210,23 @@ def generate_pdf_for_image(original_pil: Image.Image, annotated_pil: Image.Image
         bio = io.BytesIO()
         pil_img.resize((iw2, ih2)).save(bio, format="PNG")
         bio.seek(0)
-        rlimg = RLImage(ImageReader(bio), width=iw2, height=ih2)
-        return rlimg
+        return RLImage(ImageReader(bio), width=iw2, height=ih2)
+
     rl_orig = prepare_rl_image(original_pil, max_img_w, max_img_h)
     rl_ann = prepare_rl_image(annotated_pil, max_img_w, max_img_h)
-    # Put images in a two-column table so they are placed side-by-side cleanly
     img_table = Table([[rl_orig, rl_ann]], colWidths=[max_img_w, max_img_w])
     img_table.setStyle(TableStyle([("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 0)]))
-    story.append(img_table)
-    story.append(Spacer(1, 12))
-    # Now build the defect table with headers and fixed column widths
+    story.extend([img_table, Spacer(1, 12)])
+
+    # defect table
     headers = ["id", "type", "x", "y", "w", "h", "center_x", "center_y", "confidence"]
-    # Prepare rows
-    table_rows = [headers]
+    rows = [headers]
     for i, d in enumerate(defects):
-        # compute w,h,cx,cy from provided fields if present (they may be passed in various shapes)
         w = d.get("width") if "width" in d else (float(d.get("x2", 0)) - float(d.get("x1", 0)) if d.get("x1") is not None and d.get("x2") is not None else "")
         h = d.get("height") if "height" in d else (float(d.get("y2", 0)) - float(d.get("y1", 0)) if d.get("y1") is not None and d.get("y2") is not None else "")
         cx = d.get("center_x") if "center_x" in d else ((float(d.get("x1", 0)) + float(d.get("x2", 0))) / 2 if d.get("x1") is not None and d.get("x2") is not None else "")
         cy = d.get("center_y") if "center_y" in d else ((float(d.get("y1", 0)) + float(d.get("y2", 0))) / 2 if d.get("y1") is not None and d.get("y2") is not None else "")
-        row = [
+        rows.append([
             str(i+1),
             str(d.get("defect_type", d.get("Defect type", ""))),
             f"{d.get('x', d.get('x1', ''))}",
@@ -248,11 +236,10 @@ def generate_pdf_for_image(original_pil: Image.Image, annotated_pil: Image.Image
             f"{cx}",
             f"{cy}",
             f"{d.get('confidence', d.get('Confidence', ''))}"
-        ]
-        table_rows.append(row)
-    # column widths (approx): id small, type wider, coords moderate, conf small
-    colWidths = [30, 110, 60, 60, 50, 50, 60, 60, 60]
-    defect_table = Table(table_rows, colWidths=colWidths, repeatRows=1)
+        ])
+
+    colWidths = [30, 120, 60, 60, 50, 50, 60, 60, 60]
+    defect_table = Table(rows, colWidths=colWidths, repeatRows=1)
     defect_table.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#e2e8f0")),
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#0f172a")),
@@ -260,23 +247,137 @@ def generate_pdf_for_image(original_pil: Image.Image, annotated_pil: Image.Image
         ("ALIGN", (0,0), (-1,-1), "CENTER"),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTNAME", (0,1), (-1,-1), "Helvetica"),
         ("FONTSIZE", (0,0), (-1,0), 9),
         ("FONTSIZE", (0,1), (-1,-1), 8),
         ("LEFTPADDING", (0,0), (-1,-1), 4),
         ("RIGHTPADDING", (0,0), (-1,-1), 4),
     ]))
-    story.append(Paragraph("Detected defects (id, type, x, y, w, h, center_x, center_y, confidence)", styles["Heading4"]))
-    story.append(Spacer(1,6))
+    story.append(Paragraph("Detected defects (id, type, x, y, w, h, center_x, center_y, confidence)", getSampleStyleSheet()["Heading4"]))
+    story.append(Spacer(1, 6))
     story.append(defect_table)
-    story.append(Spacer(1,12))
-    story.append(Paragraph(f"Generated by CircuitGuard • {time.strftime('%Y-%m-%d %H:%M:%S')}", styles["Normal"]))
-    # build
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Generated by CircuitGuard • {time.strftime('%Y-%m-%d %H:%M:%S')}", getSampleStyleSheet()["Normal"]))
     doc.build(story)
     buffer.seek(0)
     return buffer.read()
 
-# CSV generator for export
+def generate_pdf_with_pil(original_pil: Image.Image, annotated_pil: Image.Image, defects: List[Dict], meta: Dict) -> bytes:
+    # Create a single-page PDF using PIL: place images side-by-side and draw a textual table below.
+    # This is a robust fallback when reportlab is not installed.
+    # Canvas sizing
+    margin = 40
+    spacing = 20
+    max_width = 2480  # approx A4 landscape at 300dpi ~ 3508x2480; keep below to be safe
+    max_height = 1754
+    # scale images to fit half of width
+    target_img_w = (max_width - 3 * margin) // 2
+    # scale originals
+    def scale_to(pil_img, max_w, max_h):
+        iw, ih = pil_img.size
+        scale = min(max_w / iw, max_h / ih, 1.0)
+        return pil_img.resize((int(iw * scale), int(ih * scale)))
+    # choose max image height ~40% of canvas
+    max_img_h = int(max_height * 0.45)
+    orig_s = scale_to(original_pil, target_img_w, max_img_h)
+    ann_s = scale_to(annotated_pil, target_img_w, max_img_h)
+    content_h = max(orig_s.height, ann_s.height)
+    # compute height for table area: a line per defect
+    line_h = 26
+    table_h = max(120, line_h * (len(defects) + 2))
+    canvas_h = margin + content_h + spacing + table_h + margin
+    canvas_w = max_width
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    # paste images
+    x1 = margin
+    y1 = margin
+    canvas.paste(orig_s, (x1, y1))
+    x2 = margin + target_img_w + margin
+    y2 = margin
+    canvas.paste(ann_s, (x2, y2))
+    # Draw header text
+    try:
+        # try to use a system font for nicer look, fallback to default
+        font_h = ImageFont.truetype("arial.ttf", 28)
+        font_m = ImageFont.truetype("arial.ttf", 14)
+        font_t = ImageFont.truetype("arial.ttf", 12)
+    except Exception:
+        font_h = ImageFont.load_default()
+        font_m = ImageFont.load_default()
+        font_t = ImageFont.load_default()
+    header_text = f"{meta.get('project_name','CircuitGuard')}  —  {meta.get('filename','')}"
+    draw.text((margin, canvas_h - table_h - spacing - 40), header_text, fill=(16, 42, 67), font=font_h)
+    sub_text = f"Processed: {meta.get('processed_at','')}   Model: {meta.get('model_version','')}"
+    draw.text((margin, canvas_h - table_h - spacing - 14), sub_text, fill=(64, 102, 130), font=font_m)
+    # Draw table header
+    table_x = margin
+    table_y = canvas_h - table_h + 10
+    cols = ["id", "type", "x", "y", "w", "h", "cx", "cy", "conf"]
+    col_w = [50, 220, 90, 90, 70, 70, 90, 90, 80]
+    # Draw column titles
+    x = table_x
+    y = table_y
+    draw.rectangle([table_x - 6, table_y - 6, table_x + sum(col_w) + 6, table_y + line_h + 6], outline=(225, 232, 240), fill=(245, 248, 250))
+    for i, c in enumerate(cols):
+        draw.text((x + 4, y + 4), c, fill=(10, 20, 30), font=font_t)
+        x += col_w[i]
+    # rows
+    y += line_h
+    for i, d in enumerate(defects):
+        x = table_x
+        try:
+            w = float(d.get("x2", 0)) - float(d.get("x1", 0))
+            h = float(d.get("y2", 0)) - float(d.get("y1", 0))
+            cx = (float(d.get("x1", 0)) + float(d.get("x2", 0))) / 2
+            cy = (float(d.get("y1", 0)) + float(d.get("y2", 0))) / 2
+        except Exception:
+            w = h = cx = cy = ""
+        row_values = [
+            str(i + 1),
+            str(d.get("Defect type", d.get("defect_type", ""))),
+            str(d.get("x1", d.get("x", ""))),
+            str(d.get("y1", d.get("y", ""))),
+            f"{w}",
+            f"{h}",
+            f"{cx}",
+            f"{cy}",
+            f"{d.get('Confidence', d.get('confidence', ''))}"
+        ]
+        for j, v in enumerate(row_values):
+            draw.text((x + 4, y + 4), v, fill=(10, 20, 30), font=font_t)
+            x += col_w[j]
+        y += line_h
+        # avoid overflow — stop if we exceed area
+        if y > table_y + table_h - line_h:
+            break
+    # Footer
+    draw.text((margin, canvas_h - 18), f"Generated by CircuitGuard • {time.strftime('%Y-%m-%d %H:%M:%S')}", fill=(90, 110, 125), font=font_t)
+    # Save as PDF (single page)
+    out_buf = io.BytesIO()
+    try:
+        canvas.save(out_buf, "PDF", resolution=150.0)
+    except Exception:
+        # fallback to saving PNG (rare), but still return bytes as PDF-like
+        tmp = io.BytesIO()
+        canvas.save(tmp, format="PNG")
+        tmp.seek(0)
+        # create a minimal PDF wrapper by writing everything as an image — but PIL save to PDF above should work in most envs
+        out_buf = tmp
+    out_buf.seek(0)
+    return out_buf.read()
+
+def generate_pdf_for_image(original_pil: Image.Image, annotated_pil: Image.Image, defects: List[Dict], meta: Dict) -> bytes:
+    # prefer ReportLab; fallback to PIL-based PDF
+    if HAS_REPORTLAB:
+        try:
+            return generate_pdf_with_reportlab(original_pil, annotated_pil, defects, meta)
+        except Exception:
+            # fallback if reportlab failed for any reason
+            return generate_pdf_with_pil(original_pil, annotated_pil, defects, meta)
+    else:
+        return generate_pdf_with_pil(original_pil, annotated_pil, defects, meta)
+
+# CSV helpers
 def generate_csvs(images_list: List[Dict]) -> (bytes, bytes):
     full_rows = []
     summary_rows = []
@@ -320,46 +421,42 @@ def make_zip_with_pdfs_and_csv(images_list: List[Dict], batch_id: str = "BATCH")
             zf.writestr("circuitguard_detection_summary.csv", summary_csv)
         for img in images_list:
             safe = os.path.splitext(img["name"])[0]
-            # only add PDFs if reportlab available
-            if HAS_REPORTLAB:
+            # Build a defects list for PDF
+            defects_for_pdf = []
+            for r in img.get("loc_rows", []):
                 try:
-                    # create defects list for pdf (we'll convert loc_rows into expected shape)
-                    defects_for_pdf = []
-                    for r in img.get("loc_rows", []):
-                        # try to compute width/height/center
-                        try:
-                            w = float(r.get("x2")) - float(r.get("x1"))
-                            h = float(r.get("y2")) - float(r.get("y1"))
-                            cx = (float(r.get("x1")) + float(r.get("x2"))) / 2
-                            cy = (float(r.get("y1")) + float(r.get("y2"))) / 2
-                        except Exception:
-                            w = h = cx = cy = ""
-                        defects_for_pdf.append({
-                            "defect_type": r.get("Defect type"),
-                            "x": r.get("x1"),
-                            "y": r.get("y1"),
-                            "width": w,
-                            "height": h,
-                            "center_x": cx,
-                            "center_y": cy,
-                            "confidence": r.get("Confidence"),
-                            # also keep raw x1,x2,y1,y2 for robust fallback
-                            "x1": r.get("x1"),
-                            "x2": r.get("x2"),
-                            "y1": r.get("y1"),
-                            "y2": r.get("y2"),
-                        })
-                    pdf = generate_pdf_for_image(img["original"], img["annotated"], defects_for_pdf, {
-                        "project_name": "CircuitGuard",
-                        "batch_id": batch_id,
-                        "filename": img["name"],
-                        "processed_at": img.get("processed_at", ""),
-                        "model_version": img.get("model_version", "")
-                    })
-                    zf.writestr(f"{safe}_report.pdf", pdf)
+                    w = float(r.get("x2")) - float(r.get("x1"))
+                    h = float(r.get("y2")) - float(r.get("y1"))
+                    cx = (float(r.get("x1")) + float(r.get("x2"))) / 2
+                    cy = (float(r.get("y1")) + float(r.get("y2"))) / 2
                 except Exception:
-                    # if PDF generation fails for this image, skip that PDF but keep processing others
-                    pass
+                    w = h = cx = cy = ""
+                defects_for_pdf.append({
+                    "defect_type": r.get("Defect type"),
+                    "x": r.get("x1"),
+                    "y": r.get("y1"),
+                    "width": w,
+                    "height": h,
+                    "center_x": cx,
+                    "center_y": cy,
+                    "confidence": r.get("Confidence"),
+                    "x1": r.get("x1"),
+                    "x2": r.get("x2"),
+                    "y1": r.get("y1"),
+                    "y2": r.get("y2"),
+                })
+            try:
+                pdf_bytes = generate_pdf_for_image(img["original"], img["annotated"], defects_for_pdf, {
+                    "project_name": "CircuitGuard",
+                    "batch_id": batch_id,
+                    "filename": img["name"],
+                    "processed_at": img.get("processed_at", ""),
+                    "model_version": img.get("model_version", "")
+                })
+                zf.writestr(f"{safe}_report.pdf", pdf_bytes)
+            except Exception:
+                # if PDF generation fails for a particular file, skip it but continue building the rest of the ZIP
+                pass
     buf.seek(0)
     return buf.getvalue()
 
@@ -381,7 +478,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Top metrics row
 metric_cols = st.columns(4)
 metric_info = [("mAP@50", "0.9823"), ("mAP@50–95", "0.5598"), ("Precision", "0.9714"), ("Recall", "0.9765")]
 for col, (label, value) in zip(metric_cols, metric_info):
@@ -443,7 +539,7 @@ if uploaded_files:
         st.markdown('<div class="robot-success"><span class="robot-label">[SYSTEM]</span> DEFECT SCAN COMPLETE — ANALYSIS DASHBOARD ONLINE.</div>', unsafe_allow_html=True)
         st.markdown('<div class="status-strip">Detection complete. Click any image name in the results table to view details inline.</div>', unsafe_allow_html=True)
 
-        # Results table header
+        # Results header (table-like)
         st.markdown("### Results — summary table (click image name to toggle details)")
         header_cols = st.columns([4, 1, 1, 2])
         header_cols[0].markdown("**Image**")
@@ -484,7 +580,7 @@ if uploaded_files:
                     st.dataframe(pd.DataFrame(res["loc_rows"]).drop(columns=["Image"]), use_container_width=True)
                 else:
                     st.info("No defects detected in this image.")
-                st.info("Per-image buttons removed. Use 'Finish defect detection' to export PDFs + CSV.")
+                # per-image info message removed as requested
                 st.markdown("---")
 
         # Charts
@@ -514,8 +610,8 @@ if uploaded_files:
                     "batch_id": img.get("batch_id", f"BATCH_{time.strftime('%Y%m%d')}")
                 })
             if not HAS_REPORTLAB:
-                st.warning("reportlab not installed — ZIP will include the CSV but PDFs cannot be generated. Install reportlab to enable PDFs.")
-            with st.spinner("Generating ZIP (PDFs + CSV). This can take a while for many images..."):
+                st.info("reportlab not installed — using a PIL fallback to produce PDFs. ReportLab will give cleaner table layout if installed.")
+            with st.spinner("Generating ZIP (PDFs + CSV). This may take a moment for many images..."):
                 zip_bytes = make_zip_with_pdfs_and_csv(images_for_export, batch_id=f"BATCH_{time.strftime('%Y%m%d')}")
             st.download_button("Download results (PDFs + CSV, ZIP)", data=zip_bytes, file_name=f"circuitguard_results_{time.strftime('%Y%m%d_%H%M%S')}.zip", mime="application/zip")
 else:
