@@ -1,10 +1,12 @@
 # app.py
-# CircuitGuard — UI updated to show results as a list/table with collapsible details
+# CircuitGuard — UI updated to show results in a table where clicking the image name toggles inline details
+
 import os
 import io
 import zipfile
 import time
 from collections import Counter
+from typing import List, Dict
 
 import streamlit as st
 from ultralytics import YOLO
@@ -12,20 +14,18 @@ from PIL import Image
 import pandas as pd
 import altair as alt
 
-# Try optional reportlab imports (PDF generation). If missing, show message but do not crash UI.
+# Optional PDF libs
 HAS_REPORTLAB = True
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.utils import ImageReader
     from reportlab.pdfgen import canvas
-except Exception as _:
+except Exception:
     HAS_REPORTLAB = False
 
 # ------------------ CONFIG ------------------
-
 LOCAL_MODEL_PATH = r"C:\Users\asus\OneDrive\Desktop\yolo deploy\best.pt"
 CLOUD_MODEL_PATH = "best.pt"
-
 MODEL_PATH = LOCAL_MODEL_PATH if os.path.exists(LOCAL_MODEL_PATH) else CLOUD_MODEL_PATH
 
 CONFIDENCE = 0.25
@@ -37,10 +37,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# ------------------ CUSTOM STYLING ------------------
+# ------------------ CSS (kept from your file) ------------------
 st.markdown(
     """
     <style>
+    /* (Your full CSS block — keep as-is) */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Bitcount+Prop+Single:wght@400;600&display=swap');
 
@@ -285,6 +286,10 @@ if "annotated_images" not in st.session_state:
     st.session_state["annotated_images"] = []
 if "show_download" not in st.session_state:
     st.session_state["show_download"] = False
+# store processed image results temporarily per run
+# (we'll use local variable image_results during processing)
+if "open_row_idx" not in st.session_state:
+    st.session_state["open_row_idx"] = None
 
 # ------------------ MODEL LOADING & INFERENCE ------------------
 @st.cache_resource
@@ -407,7 +412,7 @@ st.markdown(
         <li>Prepare clear PCB images (top view, good lighting).</li>
         <li>Upload one or more images using the box below.</li>
         <li>Wait for the model to run – we’ll generate annotated results.</li>
-        <li>Review the results list below; click an image name to open its details.</li>
+        <li>Review the results table below; click an image name to toggle its details inline.</li>
         <li>Download individual annotated images or a ZIP with CSV + all annotated outputs.</li>
       </ol>
     </div>
@@ -443,7 +448,7 @@ with st.container():
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ------------------ DETECTION & RESULTS LIST ------------------
+# ------------------ DETECTION & RESULTS TABLE ------------------
 if uploaded_files:
     try:
         model = load_model(MODEL_PATH)
@@ -500,45 +505,59 @@ if uploaded_files:
               DEFECT SCAN COMPLETE — ANALYSIS DASHBOARD ONLINE.
             </div>
             <div class="status-strip">
-              Detection complete. Click any image in the results list to view details.
+              Detection complete. Click any image name in the results table to view details inline.
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        # ---------- NEW: Results list (table) ----------
-        st.markdown("### Results — summary list")
-        # Prepare summary rows: one row per image
-        summary_rows = []
-        for res in image_results:
+        # ---------- NEW: Results summary table with clickable image names ----------
+        st.markdown("### Results — summary table (click image name to toggle details)")
+        # Table header
+        header_cols = st.columns([4, 1, 1, 2])
+        header_cols[0].markdown("**Image**")
+        header_cols[1].markdown("**Defects**")
+        header_cols[2].markdown("**Max confidence**")
+        header_cols[3].markdown("**Processed at**")
+
+        # Compute summary rows and render them as rows where the image name is a clickable button
+        for idx, res in enumerate(image_results):
             defect_count = len(res["loc_rows"])
             max_conf = 0.0
             if res["loc_rows"]:
                 max_conf = max([r["Confidence"] for r in res["loc_rows"]])
-            summary_rows.append({
-                "Image": res["name"],
-                "Defects": defect_count,
-                "Max confidence": round(max_conf, 2),
-                "Processed at": res.get("processed_at", ""),
-            })
 
-        summary_df = pd.DataFrame(summary_rows)
-        # show a compact dataframe with row selection (user can click expanders below)
-        st.dataframe(summary_df, use_container_width=True)
+            row_cols = st.columns([4, 1, 1, 2])
+            # image name button: toggles inline details
+            btn_key = f"img_row_btn_{idx}_{res['name']}"
+            clicked = row_cols[0].button(res["name"], key=btn_key)
+            # show numeric cells
+            row_cols[1].write(str(defect_count))
+            row_cols[2].write(str(round(max_conf, 2)))
+            row_cols[3].write(res.get("processed_at", ""))
 
-        st.markdown("### Click an image name to expand details")
-        # For each image create a collapsible expander keyed by filename
-        for idx, res in enumerate(image_results):
-            key = f"expander_{idx}_{res['name']}"
-            with st.expander(f"{res['name']} — {len(res['loc_rows'])} defects", expanded=False):
-                col1, col2 = st.columns(2)
-                with col1:
+            # maintain toggle state in session_state
+            if clicked:
+                # if already open, close; else open this
+                if st.session_state.get("open_row_idx") == idx:
+                    st.session_state["open_row_idx"] = None
+                else:
+                    st.session_state["open_row_idx"] = idx
+                # rerun to immediately reflect change
+                st.experimental_rerun()
+
+            # If this row is currently open, render the details inline right below the row
+            if st.session_state.get("open_row_idx") == idx:
+                # Render a separator and then a 2-column layout with original + annotated
+                st.markdown("---")
+                c1, c2 = st.columns(2)
+                with c1:
                     st.subheader("Original image")
                     buf_o = io.BytesIO()
                     res["original"].save(buf_o, format="PNG")
                     buf_o.seek(0)
                     st.image(buf_o.getvalue(), use_column_width=True)
-                with col2:
+                with c2:
                     st.subheader("Annotated image")
                     buf_a = io.BytesIO()
                     res["annotated"].save(buf_a, format="PNG")
@@ -566,39 +585,23 @@ if uploaded_files:
                 # Action buttons
                 a1, a2, a3 = st.columns(3)
                 with a1:
-                    if st.button(f"Download PDF — {res['name']}", key=f"pdf_{idx}"):
+                    if a1.button(f"Download PDF — {res['name']}", key=f"pdf_{idx}"):
                         if not HAS_REPORTLAB:
                             st.error("reportlab not installed — PDF generation not available in this environment.")
                         else:
-                            # build a single-image PDF (keeps same format as before)
-                            meta = {
-                                "project_name": "CircuitGuard",
-                                "batch_id": "",
-                                "filename": res["name"],
-                                "processed_at": res.get("processed_at", ""),
-                                "model_version": "",
-                            }
-                            # simple PDF with annotated + original and table; re-use your previous generation if you have it
-                            # For minimal change, create a tiny PDF here:
-                            from reportlab.lib.pagesizes import A4, landscape
-                            from reportlab.lib.utils import ImageReader
-                            from reportlab.pdfgen import canvas
-
+                            # simple PDF generation kept minimal here (you can swap to your full generator)
                             pdf_buf = io.BytesIO()
                             c = canvas.Canvas(pdf_buf, pagesize=landscape(A4))
                             page_w, page_h = landscape(A4)
-                            # place images side-by-side
                             left_img = ImageReader(res["original"])
                             right_img = ImageReader(res["annotated"])
-                            # scale both to same height
-                            ih = res["original"].height
-                            iw = res["original"].width
+                            # draw images side-by-side scaled
+                            iw, ih = res["original"].size
                             scale = min((page_h - 200) / ih, (page_w/2 - 60) / iw, 1.0)
                             w2 = iw * scale
                             h2 = ih * scale
                             c.drawImage(left_img, 30, page_h - 60 - h2, width=w2, height=h2)
                             c.drawImage(right_img, 50 + page_w/2, page_h - 60 - h2, width=w2, height=h2)
-                            # small table header
                             c.setFont("Helvetica-Bold", 10)
                             c.drawString(30, 40, f"Defects for {res['name']}")
                             c.showPage()
@@ -612,8 +615,7 @@ if uploaded_files:
                                 key=f"dl_pdf_{idx}"
                             )
                 with a2:
-                    if st.button(f"Re-run detection — {res['name']}", key=f"rerun_{idx}"):
-                        # rerun inference on this image
+                    if a2.button(f"Re-run detection — {res['name']}", key=f"rerun_{idx}"):
                         try:
                             model = load_model(MODEL_PATH)
                             plotted_img, result = run_inference(model, res["original"])
@@ -623,21 +625,19 @@ if uploaded_files:
                             res["result"] = result
                             res["loc_rows"] = loc_rows
                             res["processed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                            # refresh UI
                             st.success("Re-run complete for " + res["name"])
                             st.experimental_rerun()
                         except Exception as e:
                             st.error(f"Re-run failed: {e}")
                 with a3:
-                    # include this image in annotated_images for bundle if user wants
-                    if st.button(f"Add to ZIP selection — {res['name']}", key=f"selectzip_{idx}"):
-                        # append annotated to session list if not present
+                    if a3.button(f"Add to ZIP selection — {res['name']}", key=f"selectzip_{idx}"):
                         existing = [n for n, _ in st.session_state.get("annotated_images", [])]
                         if res["name"] not in existing:
                             st.session_state["annotated_images"].append((res["name"], res["annotated"]))
                             st.success(f"Added {res['name']} to bundle list.")
                         else:
                             st.info(f"{res['name']} already in bundle list.")
+                st.markdown("---")
 
         # Overall charts (same as before)
         if sum(global_counts.values()) > 0:
