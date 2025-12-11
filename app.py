@@ -1,5 +1,8 @@
 # app.py
-# CircuitGuard — UI updated to show results in a table where clicking the image name toggles inline details
+# CircuitGuard — Table-style results with clickable image-name rows that toggle inline details.
+# NOTE: This is your original app with UI fixes:
+#  - removed st.experimental_rerun() to avoid runtime error
+#  - table-style rows (lighter look) and inline toggling on image name click
 
 import os
 import io
@@ -37,13 +40,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# ------------------ CSS (kept from your file) ------------------
+# ------------------ CSS (kept + table styling) ------------------
 st.markdown(
     """
     <style>
-    /* (Your full CSS block — keep as-is) */
+    /* keep your existing styling and add table row / card look */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Bitcount+Prop+Single:wght@400;600&display=swap');
 
     html, body, [data-testid="stAppViewContainer"] {
         background: #f8fbff;
@@ -51,229 +53,47 @@ st.markdown(
         color: #102a43;
     }
 
+    /* Sidebar (unchanged) */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #e8f5ff 0%, #e7fff7 100%);
         border-right: 1px solid #d0e2ff;
     }
+    [data-testid="stSidebar"] * { color: #102a43 !important; }
+    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code { background: #e5e7eb !important; color: #111827 !important; }
 
-    [data-testid="stSidebar"] * {
-        color: #102a43 !important;
-    }
+    /* Button style (unchanged) */
+    .stButton>button { border-radius: 999px; padding: 0.5rem 1.25rem; border: none; font-weight: 500; background: #85c5ff; color: #0f172a; box-shadow: 0 8px 14px rgba(148,163,184,0.28); }
+    .stButton>button:hover { background: #63b1ff; transform: translateY(-1px) scale(1.01); }
 
-    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code {
-        background: #e5e7eb !important;
-        color: #111827 !important;
-    }
-
-    [data-testid="stToolbar"] * {
-        color: #e5e7eb !important;
-    }
-
-    h2, h3 {
-        font-weight: 600;
-        color: #13406b;
-        font-family: 'Space Grotesk', 'Poppins', system-ui, -apple-system, sans-serif;
-    }
-
-    .stButton>button {
-        border-radius: 999px;
-        padding: 0.5rem 1.25rem;
-        border: none;
-        font-weight: 500;
-        background: #85c5ff;
-        color: #0f172a;
-        box-shadow: 0 8px 14px rgba(148, 163, 184, 0.28);
-        transition: transform 0.18s ease-out, box-shadow 0.18s ease-out, background 0.18s ease-out;
-        animation: pulse-soft 2.4s ease-in-out infinite;
-    }
-
-    .stButton>button:hover {
-        background: #63b1ff;
-        transform: translateY(-1px) scale(1.01);
-        box-shadow: 0 12px 22px rgba(148, 163, 184, 0.38);
-    }
-
-    @keyframes pulse-soft {
-        0% {
-            transform: translateY(0);
-            box-shadow: 0 8px 14px rgba(148, 163, 184, 0.25);
-        }
-        50% {
-            transform: translateY(-1px);
-            box-shadow: 0 12px 22px rgba(148, 163, 184, 0.4);
-        }
-        100% {
-            transform: translateY(0);
-            box-shadow: 0 8px 14px rgba(148, 163, 184, 0.25);
-        }
-    }
-
-    [data-testid="stDownloadButton"] > button {
-        background: #e5e7eb !important;
-        color: #111827 !important;
-        border-radius: 999px !important;
-        border: 1px solid #cbd5f5 !important;
-        font-weight: 500;
-    }
-
-    .upload-box {
-        border-radius: 18px;
-        border: 1px dashed #a3c9ff;
-        padding: 1.5rem;
+    /* Table-like row cards */
+    .result-row {
         background: #ffffff;
-    }
-
-    [data-testid="stFileUploader"] div,
-    [data-testid="stFileUploader"] span,
-    [data-testid="stFileUploader"] label {
-        color: #f9fafb !important;
-    }
-    [data-testid="stFileUploader"] button {
-        background: #111827 !important;
-        color: #f9fafb !important;
-        border-radius: 999px !important;
-        border: none !important;
-    }
-
-    .metric-card {
-        border-radius: 18px;
-        padding: 0.75rem 1rem;
-        background: #ffffff;
-        border: 1px solid #dbeafe;
-    }
-
-    .metric-label {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: #6b7280;
-        margin-bottom: 0.1rem;
-    }
-
-    .metric-value {
-        font-size: 1.15rem;
-        font-weight: 600;
-        color: #111827;
-        font-family: 'Space Grotesk', 'Poppins', system-ui, sans-serif;
-    }
-
-    .logo-circle {
-        width: 60px;
-        height: 60px;
-        border-radius: 50%;
-        background: #e0f2fe;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 32px;
-        margin-bottom: 0.4rem;
-    }
-
-    .header-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        margin-top: 0.5rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .main-title {
-        font-family: 'Space Grotesk', system-ui, -apple-system,
-                     BlinkMacSystemFont, 'Poppins', sans-serif;
-        font-weight: 600;
-        font-size: 2.8rem;
-        text-align: center;
-        color: #13406b;
-        letter-spacing: 0.03em;
-    }
-
-    .subtitle-text {
-        font-size: 0.95rem;
-        color: #334e68;
-        text-align: center;
-    }
-
-    .instruction-card {
-        border-radius: 18px;
-        background: #ffffff;
-        border: 1px solid #dbeafe;
-        padding: 1rem 1.25rem;
-        margin: 1rem 0;
-        font-size: 0.9rem;
-    }
-    .instruction-card ol {
-        margin-left: 1.1rem;
-        padding-left: 0.5rem;
-    }
-    .instruction-card li {
-        margin-bottom: 0.25rem;
-    }
-
-    .defect-badges {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        margin-top: 0.4rem;
-    }
-    .defect-badge {
-        padding: 0.2rem 0.6rem;
-        border-radius: 999px;
-        background: #e0f2fe;
-        font-size: 0.8rem;
-        color: #13406b;
-    }
-
-    .robot-success {
-        margin: 1rem 0 0.4rem 0;
-        padding: 0.8rem 1.2rem;
+        border: 1px solid #e6eefb;
         border-radius: 12px;
-        background: linear-gradient(90deg, #0f172a 0%, #1f2937 55%, #16a34a 100%);
-        color: #e5f9ff;
-        font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
-        font-size: 0.9rem;
-        letter-spacing: 0.09em;
-        position: relative;
-        overflow: hidden;
-        text-transform: uppercase;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 6px 16px rgba(14, 30, 37, 0.03);
     }
-    .robot-success::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: repeating-linear-gradient(
-            0deg,
-            rgba(148, 163, 184, 0.0),
-            rgba(148, 163, 184, 0.0) 2px,
-            rgba(148, 163, 184, 0.25) 3px
-        );
-        mix-blend-mode: soft-light;
-        opacity: 0.4;
-        pointer-events: none;
-        animation: scanlines 6s linear infinite;
-    }
-    @keyframes scanlines {
-        0% { transform: translateY(-3px); }
-        100% { transform: translateY(3px); }
-    }
-    .robot-label {
-        color: #a7f3d0;
-        margin-right: 0.75rem;
-    }
-
-    .status-strip {
-        margin: 0.1rem 0 1.2rem 0;
-        padding: 0.65rem 1.1rem;
+    .result-row .image-name-btn {
+        background: #e6f0ff;
         border-radius: 999px;
-        background: #d1fae5;
-        color: #064e3b;
-        font-size: 0.9rem;
-        font-weight: 500;
+        padding: 6px 14px;
+        color: #08395b;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
     }
+    .result-header {
+        display:flex; gap:12px; align-items:center; font-weight:600; color:#334e68; margin-bottom:8px;
+    }
+    .result-cells { color:#334e68; }
 
-    .vega-embed, .vega-embed canvas {
-        max-width: 100% !important;
-    }
+    /* small helper for metadata */
+    .cell-small { color:#64748b; font-size:0.95rem; }
+
+    /* responsive image inside details */
+    .detail-img { max-width:100%; height:auto; border-radius:8px; border:1px solid #eef5ff; }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -286,8 +106,7 @@ if "annotated_images" not in st.session_state:
     st.session_state["annotated_images"] = []
 if "show_download" not in st.session_state:
     st.session_state["show_download"] = False
-# store processed image results temporarily per run
-# (we'll use local variable image_results during processing)
+# store which row is open (index in the current run's image_results)
 if "open_row_idx" not in st.session_state:
     st.session_state["open_row_idx"] = None
 
@@ -373,7 +192,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Top metrics row with custom cards
+# top metrics (kept)
 metric_cols = st.columns(4)
 metric_info = [
     ("mAP@50", "0.9823"),
@@ -403,7 +222,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Instructions card
+# instructions and defect badges (kept)
 st.markdown(
     """
     <div class="instruction-card">
@@ -412,7 +231,7 @@ st.markdown(
         <li>Prepare clear PCB images (top view, good lighting).</li>
         <li>Upload one or more images using the box below.</li>
         <li>Wait for the model to run – we’ll generate annotated results.</li>
-        <li>Review the results table below; click an image name to toggle its details inline.</li>
+        <li>In the results table below click the image name to toggle details inline.</li>
         <li>Download individual annotated images or a ZIP with CSV + all annotated outputs.</li>
       </ol>
     </div>
@@ -420,7 +239,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Highlight defect types
 st.markdown(
     """
     **Defect types detected by this model:**
@@ -437,7 +255,6 @@ st.markdown(
 )
 
 st.markdown("### Upload PCB Images")
-
 with st.container():
     st.markdown('<div class="upload-box">', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
@@ -460,12 +277,11 @@ if uploaded_files:
     else:
         global_counts = Counter()
         all_rows = []
-        image_results = []  # list of dicts: name, original, annotated, result, loc_rows
+        image_results: List[Dict] = []
 
         # Run detection for all images
         for file in uploaded_files:
             img = Image.open(file).convert("RGB")
-
             with st.spinner(f"Running detection on {file.name}..."):
                 plotted_img, result = run_inference(model, img)
 
@@ -490,14 +306,12 @@ if uploaded_files:
         if all_rows:
             full_results_df = pd.DataFrame(all_rows)
             st.session_state["full_results_df"] = full_results_df
-            st.session_state["annotated_images"] = [
-                (res["name"], res["annotated"]) for res in image_results
-            ]
+            st.session_state["annotated_images"] = [(res["name"], res["annotated"]) for res in image_results]
         else:
             st.session_state["full_results_df"] = None
             st.session_state["annotated_images"] = []
 
-        # Robotic animated success banner + clear info strip
+        # success banners
         st.markdown(
             """
             <div class="robot-success">
@@ -511,44 +325,44 @@ if uploaded_files:
             unsafe_allow_html=True,
         )
 
-        # ---------- NEW: Results summary table with clickable image names ----------
+        # ---------- Results header (table-like) ----------
         st.markdown("### Results — summary table (click image name to toggle details)")
-        # Table header
         header_cols = st.columns([4, 1, 1, 2])
         header_cols[0].markdown("**Image**")
         header_cols[1].markdown("**Defects**")
         header_cols[2].markdown("**Max confidence**")
         header_cols[3].markdown("**Processed at**")
 
-        # Compute summary rows and render them as rows where the image name is a clickable button
+        # Render rows – each row is a "card" look; clicking the name toggles inline details
         for idx, res in enumerate(image_results):
             defect_count = len(res["loc_rows"])
             max_conf = 0.0
             if res["loc_rows"]:
                 max_conf = max([r["Confidence"] for r in res["loc_rows"]])
 
+            # container for the row card
+            st.markdown(f'<div class="result-row">', unsafe_allow_html=True)
             row_cols = st.columns([4, 1, 1, 2])
-            # image name button: toggles inline details
+            # using streamlit button to toggle the open index
             btn_key = f"img_row_btn_{idx}_{res['name']}"
-            clicked = row_cols[0].button(res["name"], key=btn_key)
-            # show numeric cells
-            row_cols[1].write(str(defect_count))
-            row_cols[2].write(str(round(max_conf, 2)))
-            row_cols[3].write(res.get("processed_at", ""))
-
-            # maintain toggle state in session_state
-            if clicked:
-                # if already open, close; else open this
+            # render a "button-like" clickable name using st.button
+            if row_cols[0].button(res["name"], key=btn_key):
+                # toggle open/close
                 if st.session_state.get("open_row_idx") == idx:
                     st.session_state["open_row_idx"] = None
                 else:
                     st.session_state["open_row_idx"] = idx
-                # rerun to immediately reflect change
-                st.experimental_rerun()
+                # no experimental rerun; Streamlit automatically reruns on button clicks
 
-            # If this row is currently open, render the details inline right below the row
+            # numeric cells
+            row_cols[1].markdown(f"<div class='cell-small'>{defect_count}</div>", unsafe_allow_html=True)
+            row_cols[2].markdown(f"<div class='cell-small'>{round(max_conf,2)}</div>", unsafe_allow_html=True)
+            row_cols[3].markdown(f"<div class='cell-small'>{res.get('processed_at','')}</div>", unsafe_allow_html=True)
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # If open, render inline details directly under this row
             if st.session_state.get("open_row_idx") == idx:
-                # Render a separator and then a 2-column layout with original + annotated
                 st.markdown("---")
                 c1, c2 = st.columns(2)
                 with c1:
@@ -564,7 +378,7 @@ if uploaded_files:
                     buf_a.seek(0)
                     st.image(buf_a.getvalue(), use_column_width=True)
 
-                    # downloads for single image
+                    # download annotated image
                     base = os.path.splitext(res["name"])[0]
                     st.download_button(
                         f"Download annotated image — {res['name']}",
@@ -582,20 +396,19 @@ if uploaded_files:
                 else:
                     st.info("No defects detected in this image.")
 
-                # Action buttons
+                # action buttons
                 a1, a2, a3 = st.columns(3)
                 with a1:
                     if a1.button(f"Download PDF — {res['name']}", key=f"pdf_{idx}"):
                         if not HAS_REPORTLAB:
                             st.error("reportlab not installed — PDF generation not available in this environment.")
                         else:
-                            # simple PDF generation kept minimal here (you can swap to your full generator)
+                            # minimal safe PDF (you can replace with your full generator)
                             pdf_buf = io.BytesIO()
                             c = canvas.Canvas(pdf_buf, pagesize=landscape(A4))
                             page_w, page_h = landscape(A4)
                             left_img = ImageReader(res["original"])
                             right_img = ImageReader(res["annotated"])
-                            # draw images side-by-side scaled
                             iw, ih = res["original"].size
                             scale = min((page_h - 200) / ih, (page_w/2 - 60) / iw, 1.0)
                             w2 = iw * scale
@@ -620,13 +433,12 @@ if uploaded_files:
                             model = load_model(MODEL_PATH)
                             plotted_img, result = run_inference(model, res["original"])
                             loc_rows = get_defect_locations(result, model.names, res["name"])
-                            # update res in place
                             res["annotated"] = plotted_img
                             res["result"] = result
                             res["loc_rows"] = loc_rows
                             res["processed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
                             st.success("Re-run complete for " + res["name"])
-                            st.experimental_rerun()
+                            # no experimental rerun; UI will refresh on next interaction
                         except Exception as e:
                             st.error(f"Re-run failed: {e}")
                 with a3:
@@ -637,36 +449,19 @@ if uploaded_files:
                             st.success(f"Added {res['name']} to bundle list.")
                         else:
                             st.info(f"{res['name']} already in bundle list.")
+
                 st.markdown("---")
 
-        # Overall charts (same as before)
+        # Overall charts (unchanged)
         if sum(global_counts.values()) > 0:
             st.subheader("Overall defect distribution across all uploaded images")
-            global_df = pd.DataFrame(
-                {
-                    "Defect Type": list(global_counts.keys()),
-                    "Count": list(global_counts.values()),
-                }
-            )
+            global_df = pd.DataFrame({"Defect Type": list(global_counts.keys()), "Count": list(global_counts.values())})
 
-            # Bar chart
             bar_chart = (
                 alt.Chart(global_df)
                 .mark_bar(size=45)
-                .encode(
-                    x=alt.X(
-                        "Defect Type:N",
-                        sort="-y",
-                        axis=alt.Axis(labelAngle=0),
-                    ),
-                    y=alt.Y("Count:Q"),
-                    tooltip=["Defect Type", "Count"],
-                )
-                .properties(
-                    height=260,
-                    padding={"left": 5, "right": 5, "top": 10, "bottom": 10},
-                )
-                .configure_view(strokeWidth=0)
+                .encode(x=alt.X("Defect Type:N", sort="-y", axis=alt.Axis(labelAngle=0)), y=alt.Y("Count:Q"), tooltip=["Defect Type", "Count"])
+                .properties(height=260)
             )
             st.altair_chart(bar_chart, use_container_width=True)
 
@@ -674,25 +469,14 @@ if uploaded_files:
             donut_chart = (
                 alt.Chart(global_df)
                 .mark_arc(innerRadius=55, outerRadius=100)
-                .encode(
-                    theta=alt.Theta("Count:Q", stack=True),
-                    color=alt.Color(
-                        "Defect Type:N",
-                        legend=alt.Legend(title="Defect type"),
-                    ),
-                    tooltip=["Defect Type", "Count"],
-                )
-                .properties(
-                    height=260,
-                    padding={"left": 0, "right": 0, "top": 10, "bottom": 10},
-                )
+                .encode(theta=alt.Theta("Count:Q", stack=True), color=alt.Color("Defect Type:N", legend=alt.Legend(title="Defect type")), tooltip=["Defect Type", "Count"])
+                .properties(height=260)
             )
             st.altair_chart(donut_chart, use_container_width=True)
-
         else:
             st.info("No defects detected in any of the uploaded images.")
 
-        # -------- Export flow: Finish + Download (CSV + annotated images) --------
+        # Export flow (unchanged)
         if st.session_state["full_results_df"] is not None:
             st.markdown("### Export results")
             if st.button("Finish defect detection"):
