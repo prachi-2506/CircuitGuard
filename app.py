@@ -1,3 +1,35 @@
+# app.py — top of file (replace the first ~30 lines of your file with this)
+import os
+import io
+import zipfile
+import time
+from collections import Counter
+from typing import List, Dict
+
+import streamlit as st            # <--- must be before any st.markdown / st.* call
+from ultralytics import YOLO
+from PIL import Image, ImageDraw, ImageFont
+import pandas as pd
+import altair as alt
+
+# now the CSS block (safe to keep as-is)
+st.markdown(
+    """
+    <style>
+    /* your original CSS (keep it here) */
+
+    /* Results scroll block */
+    .results-block {
+        max-height: 520px;
+        overflow: auto;
+        padding: 12px;
+        background: transparent;
+    }
+    .result-row { background:#ffffff; border:1px solid #eef6ff; border-radius:12px; padding:12px 16px; margin-bottom:12px; box-shadow: 0 6px 16px rgba(14,30,37,0.02); }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 # (top of file unchanged) ...
 # ------------------ CSS: center header, lighter browse + download buttons (restore uploader preview) ------------------
 st.markdown(
