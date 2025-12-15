@@ -105,17 +105,38 @@ st.markdown(
     .result-row { background:#ffffff; border:1px solid #eef6ff; border-radius:12px; padding:12px 16px; margin-bottom:12px; box-shadow: 0 6px 16px rgba(14,30,37,0.02); }
     .image-name-btn { background:transparent; border:none; color:#0b3a57; font-weight:600; font-size:1rem; text-align:left; cursor:pointer; }
     .image-name-btn:hover { text-decoration: underline; }
-
-    .results-block {
-    max-height: 440px;
-    overflow-y: auto;
+.results-block {
+    max-height: 340px;              /* shows ~5–6 rows */
+    overflow-y: scroll;             /* force scrollbar */
+    overflow-x: hidden;
     padding: 14px;
     background: #f8fbff;
     border-radius: 14px;
     border: 1px solid #dbeafe;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
     margin-top: 12px;
+
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: #93c5fd #f1f5f9;
 }
+
+/* Chrome / Edge / Brave */
+.results-block::-webkit-scrollbar {
+    width: 10px;
+}
+
+.results-block::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
+}
+
+.results-block::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #c7e5ff, #93c5fd);
+    border-radius: 10px;
+}
+
+
 
 /* visible scrollbar */
 .results-block::-webkit-scrollbar {
