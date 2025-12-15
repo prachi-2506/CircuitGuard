@@ -107,11 +107,25 @@ st.markdown(
     .image-name-btn:hover { text-decoration: underline; }
 
     .results-block {
-        max-height: 520px;
-        overflow: auto;
-        padding: 6px;
-        background: transparent;
-    }
+    max-height: 520px;
+    overflow-y: auto;
+    padding: 14px;
+    background: #f8fbff;
+    border-radius: 14px;
+    border: 1px solid #dbeafe;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    margin-top: 12px;
+}
+
+/* visible scrollbar */
+.results-block::-webkit-scrollbar {
+    width: 10px;
+}
+.results-block::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #dbeafe, #bfdbfe);
+    border-radius: 8px;
+}
+
 
     .vega-embed, .vega-embed canvas { max-width:100% !important; }
     </style>
