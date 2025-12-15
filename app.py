@@ -107,7 +107,7 @@ st.markdown(
     .image-name-btn:hover { text-decoration: underline; }
 
     .results-block {
-    max-height: 520px;
+    max-height: 440px;
     overflow-y: auto;
     padding: 14px;
     background: #f8fbff;
